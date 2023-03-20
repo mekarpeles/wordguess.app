@@ -26,6 +26,7 @@ COPY . /app
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_DEBUG=1
+ENV OPENAI_API_KEY=
 
 # Expose port 5000 for Flask
 EXPOSE 5000

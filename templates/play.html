@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>WordGuess Chat</title>
+  </head>
+  <body>
+    <div id="chat-window">
+      {{ msg }}
+    </div>
+    <form>
+      <input type="text" id="user-input">
+      <input type="submit" value="Send" id="submit-button">
+    </form>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+      $(document).ready(function() {
+        $('#submit-button').click(function(event) {
+          event.preventDefault();
+          var userInput = $('#user-input').val();
+          $.get('/play', {guess: userInput}, function(data) {
+            console.log(data);
+            $('#chat-window').append('<p><b>Me</b>: ' + userInput + '</p>');
+            $('#chat-window').append('<p>' + data.result + '</p>');
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
