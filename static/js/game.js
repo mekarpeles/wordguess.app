@@ -18,6 +18,7 @@
   const guesserStatus = el("guesser-status");
   const guessesRemainingGuesserEl = el("guesses-remaining-guesser");
   const flagDifficultBtn = el("flag-difficult-btn");
+  const roundTimerEl = el("round-timer");
   const chatLog = el("chat-log");
   const chatInput = el("chat-input");
   const sendBtn = el("send-btn");
@@ -27,6 +28,8 @@
   let roundCount = 0;
   let currentTargetLang = null;
   let currentGuesserNativeLang = null;
+  let timerInterval = null;
+  let timeRemaining = 0;
 
   function showStatus(message) {
     statusMessage.textContent = message || "";
@@ -93,6 +96,7 @@
     renderScoreboard(data.scores);
     currentTargetLang = data.target_lang;
     currentGuesserNativeLang = data.guesser_native_lang || null;
+    startRoundTimer(data.time_limit_seconds);
 
     if (data.role === "prompter") {
       roleBanner.textContent = `You are the PROMPTER. Give hints in ${LANG_NAMES[data.target_lang]} without saying the word.`;
@@ -166,6 +170,8 @@
       .join(" · ");
     if (data.correct) {
       addSystemMessage(`🎉 ${data.winner_name} guessed it! (+${data.score_awarded} pts) — ${revealed}`, "win");
+    } else if (data.timed_out) {
+      addSystemMessage(`⏰ Time's up! — ${revealed}`, "lose");
     } else {
       addSystemMessage(`😢 Out of guesses! — ${revealed}`, "lose");
     }
@@ -176,6 +182,7 @@
     addSystemMessage("Your opponent disconnected. Refresh to start a new game.");
     chatInput.disabled = true;
     sendBtn.disabled = true;
+    stopRoundTimer();
   });
 
   function sendCurrentInput() {
@@ -246,5 +253,32 @@
 
   function scrollChatToBottom() {
     chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function startRoundTimer(limitSeconds) {
+    stopRoundTimer();
+    timeRemaining = limitSeconds;
+    renderRoundTimer();
+    timerInterval = setInterval(() => {
+      timeRemaining = Math.max(0, timeRemaining - 1);
+      renderRoundTimer();
+      if (timeRemaining <= 0) {
+        stopRoundTimer();
+      }
+    }, 1000);
+  }
+
+  function stopRoundTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  function renderRoundTimer() {
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = String(timeRemaining % 60).padStart(2, "0");
+    roundTimerEl.textContent = `⏱ ${minutes}:${seconds}`;
+    roundTimerEl.classList.toggle("low-time", timeRemaining <= 15);
   }
 })();

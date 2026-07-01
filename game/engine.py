@@ -1,4 +1,6 @@
+import os
 import re
+import time
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -16,6 +18,10 @@ MAX_GUESSES = 10
 SCORE_TABLE = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
 _FUZZY_MIN_LEN = 5
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+# Overridable via env var so tests (and e2e runs) don't have to wait out a
+# real 2 minutes to exercise timeout behavior.
+ROUND_TIME_LIMIT_SECONDS = float(os.environ.get("ROUND_TIME_LIMIT_SECONDS", 120))
 
 
 def normalize_text(text: str) -> str:
@@ -72,6 +78,7 @@ class Round:
     target_lang: str
     guesser_sid: str
     prompter_sid: str
+    started_at: float
     guesses_used: int = 0
     hints: list = field(default_factory=list)
     guesses: list = field(default_factory=list)
@@ -79,7 +86,13 @@ class Round:
 
 
 class Room:
-    def __init__(self, code: str, wordbank: WordBank | None = None, recent_history: int = 8):
+    def __init__(
+        self,
+        code: str,
+        wordbank: WordBank | None = None,
+        recent_history: int = 8,
+        clock=time.time,
+    ):
         self.code = code
         self.wordbank = wordbank or WordBank(load_wordbank())
         self.players: dict[str, Player] = {}
@@ -87,6 +100,7 @@ class Room:
         self.guesser_idx = 0
         self.recent_word_ids: list[str] = []
         self._recent_history = recent_history
+        self._clock = clock
         self.round: Round | None = None
 
     def add_player(self, player: Player) -> None:
@@ -121,12 +135,36 @@ class Room:
             target_lang=guesser.target_lang,
             guesser_sid=guesser.sid,
             prompter_sid=prompter.sid,
+            started_at=self._clock(),
         )
         return self.round
 
     def next_round(self) -> Round:
         self.guesser_idx = 1 - self.guesser_idx
         return self.start_round()
+
+    def time_remaining(self) -> float:
+        round_ = self._require_active_round()
+        elapsed = self._clock() - round_.started_at
+        return max(0.0, ROUND_TIME_LIMIT_SECONDS - elapsed)
+
+    def is_round_timed_out(self) -> bool:
+        return self.time_remaining() <= 0
+
+    def expire_round_if_timed_out(self) -> dict | None:
+        if self.round is None or self.round.status != "active":
+            return None
+        if not self.is_round_timed_out():
+            return None
+        self.round.status = "lost"
+        return {
+            "correct": False,
+            "lost": True,
+            "timed_out": True,
+            "score": 0,
+            "word": self.round.word,
+            "guesses_used": self.round.guesses_used,
+        }
 
     def _remember_word(self, word_id: str) -> None:
         self.recent_word_ids.append(word_id)
@@ -176,6 +214,7 @@ class Room:
             return {
                 "correct": True,
                 "lost": False,
+                "timed_out": False,
                 "score": score,
                 "word": round_.word,
                 "guesses_used": round_.guesses_used,
@@ -194,6 +233,7 @@ class Room:
             return {
                 "correct": False,
                 "lost": True,
+                "timed_out": False,
                 "score": 0,
                 "word": round_.word,
                 "guesses_used": round_.guesses_used,
@@ -203,6 +243,7 @@ class Room:
         return {
             "correct": False,
             "lost": False,
+            "timed_out": False,
             "score": 0,
             "remaining": MAX_GUESSES - round_.guesses_used,
             "wrong_language": wrong_language,

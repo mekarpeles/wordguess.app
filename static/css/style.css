@@ -129,6 +129,16 @@ button {
   letter-spacing: 2px;
 }
 
+#round-timer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+#round-timer.low-time {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 #scoreboard {
   display: flex;
   gap: 16px;

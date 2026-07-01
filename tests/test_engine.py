@@ -10,6 +10,8 @@ from game.errors import (
 )
 from game.wordbank import WordBank
 
+from conftest import SAMPLE_WORDS
+
 
 def make_players():
     # A learns French, native English. B learns English, native French.
@@ -200,7 +202,14 @@ def test_submit_guess_flags_wrong_language_when_guesser_repeats_target_word():
     # ("neighbor"), got a generic "not quite", and had no idea why. The
     # engine should still mark it incorrect (native-language-only guessing
     # is an intentional design choice) but flag *why* so the UI can explain.
-    room = Room(code="ABCD")
+    #
+    # Uses a fixed, cognate-free word bank rather than the real 44-word one:
+    # several real words are spelled identically (or near-identically) in
+    # en/fr (e.g. "table", "justice", "silence") -- if one of those were
+    # drawn at random, the guesser "repeating the target word" would
+    # coincidentally BE the correct native-language answer too, flipping
+    # this into a win and making the test flaky ~1 in 20 rounds.
+    room = Room(code="ABCD", wordbank=WordBank(SAMPLE_WORDS))
     a, b = make_players()
     room.add_player(a)
     room.add_player(b)

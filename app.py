@@ -2,10 +2,10 @@ import logging
 import os
 
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit, join_room as sio_join_room
+from flask_socketio import SocketIO, join_room as sio_join_room
 
 from game.emoji_hints import annotate_hint
-from game.engine import MAX_GUESSES, Player
+from game.engine import MAX_GUESSES, ROUND_TIME_LIMIT_SECONDS, Player
 from game.errors import (
     NoActiveRoundError,
     NotYourTurnError,
@@ -45,23 +45,68 @@ def create_app():
         base = {
             "target_lang": round_.target_lang,
             "guesses_remaining": MAX_GUESSES,
+            "time_limit_seconds": ROUND_TIME_LIMIT_SECONDS,
             "scores": _scores_payload(room),
         }
-        emit(
+        socketio.emit(
             "round_started",
             {**base, "role": "guesser", "guesser_native_lang": guesser.native_lang},
             to=guesser.sid,
         )
-        emit(
+        socketio.emit(
             "round_started",
             {**base, "role": "prompter", "secret_word": round_.word["translations"][round_.target_lang]},
             to=prompter.sid,
         )
+        _schedule_round_timeout(room)
+
+    def _schedule_round_timeout(room):
+        round_ = room.round
+
+        def watch():
+            socketio.sleep(ROUND_TIME_LIMIT_SECONDS)
+            if room.round is not round_:
+                return  # round already ended for another reason
+            result = room.expire_round_if_timed_out()
+            if result is None:
+                return
+            logger.info("room=%s round TIMED OUT word_id=%s", room.code, result["word"]["id"])
+            _finish_round_and_advance(room, result, winner_name=None)
+
+        socketio.start_background_task(watch)
+
+    def _finish_round_and_advance(room, result, winner_name):
+        socketio.emit(
+            "round_result",
+            {
+                "correct": result["correct"],
+                "winner_name": winner_name,
+                "score_awarded": result.get("score", 0),
+                "revealed_word": result["word"]["translations"],
+                "scores": _scores_payload(room),
+                "timed_out": result.get("timed_out", False),
+            },
+            to=room.code,
+        )
+        if len(room.players) < 2:
+            # The opponent disconnected between the last action and this
+            # round ending (a real race: guess submitted right as the other
+            # player leaves, or the round-timeout timer firing after a
+            # disconnect). Nothing to advance to -- the remaining player
+            # already got "opponent_left" from the disconnect handler.
+            return
+        next_round = room.next_round()
+        logger.info(
+            "room=%s round_started word_id=%s target_lang=%s guesser=%r prompter=%r",
+            room.code, next_round.word["id"], next_round.target_lang,
+            room.players[next_round.guesser_sid].name, room.players[next_round.prompter_sid].name,
+        )
+        _broadcast_round_started(room)
 
     def _add_player_and_reply(room, data):
         for field in REQUIRED_PROFILE_FIELDS:
             if not data.get(field):
-                emit("error", {"message": f"missing required field: {field}"})
+                socketio.emit("error", {"message": f"missing required field: {field}"}, to=request.sid)
                 return
         player = Player(
             sid=request.sid,
@@ -77,7 +122,7 @@ def create_app():
             "room=%s joined name=%r native=%s target=%s level=%s (%d/2)",
             room.code, player.name, player.native_lang, player.target_lang, player.level, len(room.players),
         )
-        emit(
+        socketio.emit(
             "joined",
             {"code": room.code, "sid": request.sid, "players": _players_payload(room)},
             to=room.code,
@@ -111,12 +156,12 @@ def create_app():
     def handle_join_room(data):
         room = registry.get(data.get("code", ""))
         if room is None:
-            emit("error", {"message": f"Room {data.get('code', '')} not found"})
+            socketio.emit("error", {"message": f"Room {data.get('code', '')} not found"}, to=request.sid)
             return
         try:
             _add_player_and_reply(room, data)
         except RoomFullError:
-            emit("error", {"message": f"Room {room.code} is already full"})
+            socketio.emit("error", {"message": f"Room {room.code} is already full"}, to=request.sid)
 
     @socketio.on("send_hint")
     def handle_send_hint(data):
@@ -130,15 +175,15 @@ def create_app():
             hint = room.submit_hint(request.sid, text)
         except TabooViolationError as e:
             logger.info("room=%s hint REJECTED text=%r reason=%s", room.code, text, e)
-            emit("hint_rejected", {"message": str(e)})
+            socketio.emit("hint_rejected", {"message": str(e)}, to=request.sid)
             return
         except (NotYourTurnError, NoActiveRoundError) as e:
-            emit("error", {"message": str(e)})
+            socketio.emit("error", {"message": str(e)}, to=request.sid)
             return
         sender = room.players[request.sid]
         logger.info("room=%s hint from=%r text=%r", room.code, sender.name, text)
         display_text = annotate_hint(hint["text"], room.round.target_lang)
-        emit("hint", {"text": display_text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
+        socketio.emit("hint", {"text": display_text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
 
     @socketio.on("flag_difficult")
     def handle_flag_difficult(_data=None):
@@ -148,11 +193,11 @@ def create_app():
         try:
             room.flag_difficult(request.sid)
         except (NotYourTurnError, NoActiveRoundError) as e:
-            emit("error", {"message": str(e)})
+            socketio.emit("error", {"message": str(e)}, to=request.sid)
             return
         sender = room.players[request.sid]
         logger.info("room=%s difficulty flagged by=%r", room.code, sender.name)
-        emit("difficulty_flagged", {"from_name": sender.name}, to=room.code)
+        socketio.emit("difficulty_flagged", {"from_name": sender.name}, to=room.code)
 
     @socketio.on("send_guess")
     def handle_send_guess(data):
@@ -165,7 +210,7 @@ def create_app():
         try:
             result = room.submit_guess(request.sid, text)
         except (NotYourTurnError, NoActiveRoundError) as e:
-            emit("error", {"message": str(e)})
+            socketio.emit("error", {"message": str(e)}, to=request.sid)
             return
         sender = room.players[request.sid]
         logger.info(
@@ -173,29 +218,12 @@ def create_app():
             room.code, sender.name, text, result["correct"], result.get("lost", False),
             result.get("wrong_language", False),
         )
-        emit("guess", {"text": text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
+        socketio.emit("guess", {"text": text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
 
         if result["correct"] or result["lost"]:
-            emit(
-                "round_result",
-                {
-                    "correct": result["correct"],
-                    "winner_name": sender.name if result["correct"] else None,
-                    "score_awarded": result.get("score", 0),
-                    "revealed_word": result["word"]["translations"],
-                    "scores": _scores_payload(room),
-                },
-                to=room.code,
-            )
-            next_round = room.next_round()
-            logger.info(
-                "room=%s round_started word_id=%s target_lang=%s guesser=%r prompter=%r",
-                room.code, next_round.word["id"], next_round.target_lang,
-                room.players[next_round.guesser_sid].name, room.players[next_round.prompter_sid].name,
-            )
-            _broadcast_round_started(room)
+            _finish_round_and_advance(room, result, winner_name=sender.name if result["correct"] else None)
         else:
-            emit(
+            socketio.emit(
                 "guess_result",
                 {
                     "correct": False,
@@ -217,7 +245,7 @@ def create_app():
         room.player_order = [sid for sid in room.player_order if sid in room.players]
         logger.info("room=%s disconnected name=%r", code, player.name if player else request.sid)
         if room.players:
-            emit("opponent_left", {}, to=code)
+            socketio.emit("opponent_left", {}, to=code)
         else:
             registry.remove(code)
 
