@@ -117,6 +117,49 @@ the URL and clicks "Create room", shares the 4-letter code (or full URL) with
 the second player, who opens the same base URL on their own machine and
 enters the code.
 
+## Definition of done: two-agent end-to-end verification
+
+This is the concrete, checkable bar for calling the game "working," agreed
+with Mek on 2026-06-30. It must be re-satisfied (not just re-asserted) after
+any change to the socket protocol or frontend. All 12 numbered items must be
+driven through the real UI in two real (Playwright) browser contexts against
+a running instance (Docker or `python app.py`) — **not** via raw
+`socketio.emit` calls from a script. Simulating the DOM interactions a human
+would perform (click, type, click send) is the bar; API-level tests alone do
+not satisfy this.
+
+1. Two independent browser contexts connect to the running instance.
+2. Player A fills the profile form (name, native lang, target lang, level)
+   and clicks "Create Room" — sees a room code rendered in the DOM.
+3. Player B fills their own (complementary) profile, enters that code, and
+   clicks "Join Room" — sees a "joined" confirmation.
+4. Both browsers transition to the game view automatically, no page reload.
+5. Exactly one browser's DOM shows the secret word (prompter view); the
+   other's DOM does not contain it anywhere (guesser view) — checked by
+   reading rendered DOM content, not by inspecting network payloads.
+6. The prompter types the secret word itself into the hint box and sends it
+   — the UI shows a visible rejection in the prompter's own view, and the
+   text never appears in the guesser's chat log.
+7. The prompter sends a valid (non-taboo) hint — it appears in the guesser's
+   chat log in real time, no refresh.
+8. The guesser submits a deliberately wrong guess — both browsers show the
+   guess in the chat log, and the guesser's "guesses remaining" counter
+   decrements.
+9. The guesser submits the correct answer (in their own native language) —
+   both browsers show a round-result message with the score awarded, and
+   the scoreboard updates in both browsers' DOM.
+10. Roles visibly swap for round 2: the former guesser's DOM now shows a
+    secret word (prompter view) and the former prompter's DOM now shows the
+    guesser view — verified by re-reading the DOM, not assumed from step 9.
+11. Loss path (separate run/scenario): the guesser submits 10 wrong guesses
+    in a row — the UI reveals the word and roles still swap afterward.
+12. No unhandled JavaScript console errors during the full sequence in
+    either browser context.
+
+Only when all of the above pass does the two-player game count as verified
+end-to-end. This section should be updated (not deleted) if the protocol
+changes in a way that changes what "correct" looks like.
+
 ## Testing strategy (TDD)
 
 1. **Unit tests** (`tests/test_wordbank.py`, `tests/test_engine.py`) — pure
