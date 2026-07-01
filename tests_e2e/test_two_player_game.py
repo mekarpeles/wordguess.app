@@ -20,6 +20,7 @@ import re
 
 import pytest
 
+from game.emoji_hints import EXTRA_CONCEPTS
 from game.wordbank import load_wordbank
 
 BASE_URL = os.environ.get("WORDGUESS_BASE_URL", "http://localhost:5050")
@@ -32,8 +33,10 @@ BOB = {"name": "Bob", "native_lang": "fr", "target_lang": "en", "level": "beginn
 # will legitimately (and correctly) reject it as if it gave away the
 # answer -- which showed up as test flakiness once "tree" appeared as a
 # literal word in a hint that was sent during a round whose secret word
-# happened to be "tree". Guarded below so future wordbank growth can't
-# silently reintroduce the same flakiness.
+# happened to be "tree". Also must not collide with the emoji-hint
+# dictionary (game/emoji_hints.py), or the exact-text assertion below
+# would fail once the word gets an emoji appended. Guarded below so future
+# wordbank/emoji-dictionary growth can't silently reintroduce flakiness.
 SAFE_HINT_TEXT = "it's something common that people often think about"
 
 
@@ -43,6 +46,12 @@ def _assert_hint_is_collision_free():
         for translation in entry["translations"].values():
             assert translation.lower() not in hint_words, (
                 f"SAFE_HINT_TEXT collides with wordbank entry {entry['id']!r} "
+                f"({translation!r}) -- pick a different filler hint"
+            )
+    for concept in EXTRA_CONCEPTS:
+        for translation in concept["translations"].values():
+            assert translation.lower() not in hint_words, (
+                f"SAFE_HINT_TEXT collides with emoji concept {concept['emoji']!r} "
                 f"({translation!r}) -- pick a different filler hint"
             )
 

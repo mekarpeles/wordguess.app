@@ -4,6 +4,7 @@ import os
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit, join_room as sio_join_room
 
+from game.emoji_hints import annotate_hint
 from game.engine import MAX_GUESSES, Player
 from game.errors import (
     NoActiveRoundError,
@@ -136,7 +137,8 @@ def create_app():
             return
         sender = room.players[request.sid]
         logger.info("room=%s hint from=%r text=%r", room.code, sender.name, text)
-        emit("hint", {"text": hint["text"], "from_sid": request.sid, "from_name": sender.name}, to=room.code)
+        display_text = annotate_hint(hint["text"], room.round.target_lang)
+        emit("hint", {"text": display_text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
 
     @socketio.on("send_guess")
     def handle_send_guess(data):

@@ -114,12 +114,23 @@ def test_valid_hint_is_broadcast_to_both_players(two_clients):
     code = _last(alice, "joined")["code"]
     bob.emit("join_room", {**BOB_PROFILE, "code": code})
 
-    bob.emit("send_hint", {"text": "un fruit rouge ou vert"})
+    bob.emit("send_hint", {"text": "c'est très commun dans la cuisine"})
     hint_for_alice = _last(alice, "hint")
     hint_for_bob = _last(bob, "hint")
-    assert hint_for_alice["text"] == "un fruit rouge ou vert"
-    assert hint_for_bob["text"] == "un fruit rouge ou vert"
+    assert hint_for_alice["text"] == "c'est très commun dans la cuisine"
+    assert hint_for_bob["text"] == "c'est très commun dans la cuisine"
     assert hint_for_alice["from_name"] == "Bob"
+
+
+def test_hint_broadcast_is_annotated_with_emoji_for_known_words(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    bob.emit("send_hint", {"text": "c'est rouge et rond"})
+    hint_for_alice = _last(alice, "hint")
+    assert "rouge 🔴" in hint_for_alice["text"]
 
 
 def test_guesser_cannot_send_hint(two_clients):
