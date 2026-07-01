@@ -22,6 +22,8 @@
   const chatLog = el("chat-log");
   const chatInput = el("chat-input");
   const sendBtn = el("send-btn");
+  const openGamesPanel = el("open-games-panel");
+  const openGamesList = el("open-games-list");
 
   let currentRole = null; // "prompter" | "guesser"
   let currentRoomCode = null;
@@ -30,6 +32,7 @@
   let currentGuesserNativeLang = null;
   let timerInterval = null;
   let timeRemaining = 0;
+  let matchPollInterval = null;
 
   function showStatus(message) {
     statusMessage.textContent = message || "";
@@ -51,7 +54,63 @@
       return;
     }
     showStatus("");
+    stopMatchPolling();
     socket.emit("create_room", profile);
+  });
+
+  el("find-match-btn").addEventListener("click", () => {
+    const profile = collectProfile();
+    if (profile.native_lang === profile.target_lang) {
+      showStatus("Your confident language and learning language must differ.");
+      return;
+    }
+    showStatus("");
+    openGamesPanel.classList.remove("hidden");
+    requestOpenGames();
+    stopMatchPolling();
+    matchPollInterval = setInterval(requestOpenGames, 3000);
+  });
+
+  function requestOpenGames() {
+    const profile = collectProfile();
+    socket.emit("list_open_games", { native_lang: profile.native_lang, target_lang: profile.target_lang });
+  }
+
+  function stopMatchPolling() {
+    if (matchPollInterval) {
+      clearInterval(matchPollInterval);
+      matchPollInterval = null;
+    }
+  }
+
+  socket.on("open_games", (data) => {
+    openGamesList.innerHTML = "";
+    if (!data.games.length) {
+      const empty = document.createElement("div");
+      empty.className = "no-games-message";
+      empty.textContent = "No open games yet — try again in a moment, or create your own below.";
+      openGamesList.appendChild(empty);
+      return;
+    }
+    data.games.forEach((gameEntry) => {
+      const row = document.createElement("div");
+      row.className = "game-row";
+      const info = document.createElement("span");
+      info.className = "game-row-info";
+      info.textContent = `${gameEntry.host_name} — ${gameEntry.level}`;
+      const joinBtn = document.createElement("button");
+      joinBtn.className = "btn-primary";
+      joinBtn.textContent = "Join";
+      joinBtn.addEventListener("click", () => {
+        const profile = collectProfile();
+        stopMatchPolling();
+        showStatus("");
+        socket.emit("join_room", { ...profile, code: gameEntry.code });
+      });
+      row.appendChild(info);
+      row.appendChild(joinBtn);
+      openGamesList.appendChild(row);
+    });
   });
 
   el("join-room-btn").addEventListener("click", () => {
@@ -76,6 +135,7 @@
   socket.on("joined", (data) => {
     currentRoomCode = data.code;
     roomCodeBadge.textContent = data.code;
+    stopMatchPolling();
     if (data.players.length < 2) {
       lobby.classList.add("hidden");
       game.classList.remove("hidden");

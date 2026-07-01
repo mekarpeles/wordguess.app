@@ -163,6 +163,16 @@ def create_app():
         except RoomFullError:
             socketio.emit("error", {"message": f"Room {room.code} is already full"}, to=request.sid)
 
+    @socketio.on("list_open_games")
+    def handle_list_open_games(data):
+        native_lang = data.get("native_lang", "")
+        target_lang = data.get("target_lang", "")
+        if not native_lang or not target_lang:
+            socketio.emit("error", {"message": "native_lang and target_lang are required"}, to=request.sid)
+            return
+        matches = registry.list_open(native_lang=native_lang, target_lang=target_lang)
+        socketio.emit("open_games", {"games": matches}, to=request.sid)
+
     @socketio.on("send_hint")
     def handle_send_hint(data):
         room = registry.get(sid_to_room_code.get(request.sid, ""))

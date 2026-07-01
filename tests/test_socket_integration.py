@@ -81,6 +81,36 @@ def test_join_unknown_room_returns_error(two_clients):
     assert _events(bob, "error") == []
 
 
+def test_list_open_games_returns_strict_mutual_matches(game_app):
+    flask_app, socketio = game_app
+    alice = socketio.test_client(flask_app)
+    alice.emit("create_room", ALICE_PROFILE)  # en native / fr target
+    code = _last(alice, "joined")["code"]
+
+    seeker = socketio.test_client(flask_app)
+    seeker.emit("list_open_games", {"native_lang": "fr", "target_lang": "en"})
+    games = _last(seeker, "open_games")["games"]
+    assert games == [{"code": code, "host_name": "Alice", "level": "beginner"}]
+
+    mismatched = socketio.test_client(flask_app)
+    mismatched.emit("list_open_games", {"native_lang": "es", "target_lang": "zh"})
+    assert _last(mismatched, "open_games")["games"] == []
+
+    alice.disconnect()
+    seeker.disconnect()
+    mismatched.disconnect()
+
+
+def test_list_open_games_excludes_full_rooms(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})  # room now full
+
+    alice.emit("list_open_games", {"native_lang": "fr", "target_lang": "en"})
+    assert _last(alice, "open_games")["games"] == []
+
+
 def test_third_player_rejected(game_app, two_clients):
     flask_app, socketio = game_app
     alice, bob = two_clients
