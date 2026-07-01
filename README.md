@@ -219,6 +219,16 @@ docker compose run --rm web python -m pytest tests/ -v
   answers ≥ 5 characters after normalization. Without the length floor,
   short words like "cat"/"car"/"cap" would all match each other at distance
   1, which defeats the purpose of guessing.
+- **E2E test hints must never contain a literal wordbank word**: the round's
+  secret word is picked randomly, so a Playwright test that sends a fixed
+  hint string (e.g. "...grows on a tree") will flake whenever the random
+  word happens to be "tree" itself — the taboo check correctly rejects it
+  as an accidental giveaway, but the test then times out waiting for a hint
+  that was never broadcast. Fixed by a fixed, wordbank-collision-free
+  `SAFE_HINT_TEXT` with a runtime assertion
+  (`tests_e2e/test_two_player_game.py::_assert_hint_is_collision_free`) that
+  fails loudly if a future wordbank addition reintroduces the collision,
+  instead of silently flaking.
 - **Port 5000 is unusable for local dev on macOS** — it collides with the
   macOS AirPlay Receiver service, which answers with a silent HTTP 403
   instead of a clear "address in use" error (very confusing to debug). The

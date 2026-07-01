@@ -1,7 +1,7 @@
 import pytest
 
 from game.errors import NoWordsAvailableError
-from game.wordbank import WordBank, load_wordbank
+from game.wordbank import load_wordbank
 
 
 def test_pick_word_returns_word_of_requested_level(wordbank):
