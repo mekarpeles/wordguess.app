@@ -82,7 +82,10 @@ def create_app():
 
     @app.route("/room/<code>")
     def room_page(code):
-        return render_template("room.html", code=code.upper())
+        # Shares the same single-page app as "/"; prefills the join-code
+        # field so a shared room link drops the second player straight into
+        # the join form instead of making them retype the code.
+        return render_template("index.html", prefill_code=code.upper())
 
     @socketio.on("create_room")
     def handle_create_room(data):
@@ -174,4 +177,7 @@ app, socketio = create_app()
 
 if __name__ == "__main__":
     debug = bool(os.environ.get("FLASK_DEBUG", False))
-    socketio.run(app, host="0.0.0.0", port=5000, debug=debug, allow_unsafe_werkzeug=True)
+    # Default port 5000 collides with macOS AirPlay Receiver on many Macs
+    # (returns 403 instead of failing loudly) -- default to 5050 instead.
+    port = int(os.environ.get("PORT", 5050))
+    socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
