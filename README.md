@@ -107,15 +107,25 @@ python app.py                       # serves on http://0.0.0.0:5000
 ## Running in Docker
 
 ```bash
-docker compose up --build
-# app is on http://localhost:5000 — reachable from other machines on the
-# same LAN via http://<host-machine-lan-ip>:5000
+docker compose -p wordguess-two-player up -d --build web
+# app is on http://localhost:5050 — reachable from other machines on the
+# same LAN via http://<host-machine-lan-ip>:5050 (find your LAN IP with
+# `ipconfig getifaddr en0` on macOS)
+
+# run the test suite inside the same environment used for the runtime image:
+docker compose -p wordguess-two-player run --rm web python -m pytest tests/ -v
+
+# spin down when done (per pm/AGENTS.md multi-agent Docker policy):
+docker compose -p wordguess-two-player down
 ```
 
+Port 5050 (not 5000) is used deliberately — see Gotchas below.
+
 To play across two computers on the same local network: one player opens
-the URL and clicks "Create room", shares the 4-letter code (or full URL) with
-the second player, who opens the same base URL on their own machine and
-enters the code.
+`http://<host-lan-ip>:5050`, fills in their profile, and clicks "Create
+room". They share the 4-letter room code (or the full `/room/<code>` URL)
+with the second player, who opens the same base URL on their own machine,
+fills in their own profile, and enters the code to join.
 
 ## Definition of done: two-agent end-to-end verification
 
@@ -209,6 +219,10 @@ docker compose run --rm web python -m pytest tests/ -v
   answers ≥ 5 characters after normalization. Without the length floor,
   short words like "cat"/"car"/"cap" would all match each other at distance
   1, which defeats the purpose of guessing.
+- **Port 5000 is unusable for local dev on macOS** — it collides with the
+  macOS AirPlay Receiver service, which answers with a silent HTTP 403
+  instead of a clear "address in use" error (very confusing to debug). The
+  app defaults to port 5050 instead (`PORT` env var to override).
 - **`flask_socketio.test_client.get_received()` drains the whole queue on
   every call**, not just events matching what you're looking for. A test
   helper that calls `get_received()` once per assertion will silently
