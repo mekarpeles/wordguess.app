@@ -123,6 +123,38 @@ def test_submit_hint_records_valid_hint():
     assert room.round.hints[-1] == hint
 
 
+def test_flag_difficult_rejects_non_guesser():
+    room = Room(code="ABCD")
+    a, b = make_players()
+    room.add_player(a)
+    room.add_player(b)
+    room.start_round()
+    with pytest.raises(NotYourTurnError):
+        room.flag_difficult(b.sid)  # Bob is prompter, not guesser
+
+
+def test_flag_difficult_rejects_when_no_active_round():
+    room = Room(code="ABCD")
+    a, b = make_players()
+    room.add_player(a)
+    room.add_player(b)
+    # players are present but start_round() was never called
+    with pytest.raises(NoActiveRoundError):
+        room.flag_difficult(a.sid)
+
+
+def test_flag_difficult_succeeds_for_guesser_without_changing_score_or_guesses():
+    room = Room(code="ABCD")
+    a, b = make_players()
+    room.add_player(a)
+    room.add_player(b)
+    room.start_round()
+    room.flag_difficult(a.sid)  # Alice is guesser
+    assert a.score == 0
+    assert room.round.guesses_used == 0
+    assert room.round.status == "active"
+
+
 def test_submit_guess_rejects_non_guesser():
     room = Room(code="ABCD")
     a, b = make_players()

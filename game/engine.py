@@ -153,6 +153,11 @@ class Room:
         round_.hints.append(hint)
         return hint
 
+    def flag_difficult(self, sid: str) -> None:
+        round_ = self._require_active_round()
+        if sid != round_.guesser_sid:
+            raise NotYourTurnError("only the guesser may flag a clue as too difficult")
+
     def submit_guess(self, sid: str, text: str) -> dict:
         round_ = self._require_active_round()
         if sid != round_.guesser_sid:

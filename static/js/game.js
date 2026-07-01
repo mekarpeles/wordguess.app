@@ -17,6 +17,7 @@
   const guessesRemainingEl = el("guesses-remaining");
   const guesserStatus = el("guesser-status");
   const guessesRemainingGuesserEl = el("guesses-remaining-guesser");
+  const flagDifficultBtn = el("flag-difficult-btn");
   const chatLog = el("chat-log");
   const chatInput = el("chat-input");
   const sendBtn = el("send-btn");
@@ -124,6 +125,18 @@
 
   socket.on("hint_rejected", (data) => {
     addRejectedMessage(data.message);
+  });
+
+  socket.on("difficulty_flagged", (data) => {
+    addSystemMessage(`😅 ${data.from_name} says this clue is too hard — try simpler words!`);
+  });
+
+  flagDifficultBtn.addEventListener("click", () => {
+    socket.emit("flag_difficult");
+    flagDifficultBtn.disabled = true;
+    setTimeout(() => {
+      flagDifficultBtn.disabled = false;
+    }, 5000);
   });
 
   socket.on("guess", (data) => {

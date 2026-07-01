@@ -140,6 +140,20 @@ def create_app():
         display_text = annotate_hint(hint["text"], room.round.target_lang)
         emit("hint", {"text": display_text, "from_sid": request.sid, "from_name": sender.name}, to=room.code)
 
+    @socketio.on("flag_difficult")
+    def handle_flag_difficult(_data=None):
+        room = registry.get(sid_to_room_code.get(request.sid, ""))
+        if room is None:
+            return
+        try:
+            room.flag_difficult(request.sid)
+        except (NotYourTurnError, NoActiveRoundError) as e:
+            emit("error", {"message": str(e)})
+            return
+        sender = room.players[request.sid]
+        logger.info("room=%s difficulty flagged by=%r", room.code, sender.name)
+        emit("difficulty_flagged", {"from_name": sender.name}, to=room.code)
+
     @socketio.on("send_guess")
     def handle_send_guess(data):
         room = registry.get(sid_to_room_code.get(request.sid, ""))

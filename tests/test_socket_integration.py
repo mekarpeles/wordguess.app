@@ -144,6 +144,30 @@ def test_guesser_cannot_send_hint(two_clients):
     assert "prompter" in err["message"].lower()
 
 
+def test_guesser_can_flag_difficult_clue_broadcast_to_both(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    alice.emit("flag_difficult")  # Alice is guesser
+    flagged_for_alice = _last(alice, "difficulty_flagged")
+    flagged_for_bob = _last(bob, "difficulty_flagged")
+    assert flagged_for_alice["from_name"] == "Alice"
+    assert flagged_for_bob["from_name"] == "Alice"
+
+
+def test_prompter_cannot_flag_difficult_clue(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    bob.emit("flag_difficult")  # Bob is prompter
+    err = _last(bob, "error")
+    assert "guesser" in err["message"].lower()
+
+
 def test_guessing_the_target_language_word_flags_wrong_language(two_clients):
     # Regression for a real playtest report: guesser answered with the
     # target-language word itself (what the prompter is hinting at) instead
