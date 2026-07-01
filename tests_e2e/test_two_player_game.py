@@ -130,8 +130,13 @@ def test_full_round_win_path_and_role_swap(two_pages):
     prompter, guesser = identify_roles(page_a, page_b)
     secret = prompter.text_content("#secret-word").strip()
     assert secret
-    # the secret word must never appear anywhere in the guesser's page
-    assert secret not in guesser.content()
+    # The secret word must never appear anywhere in the guesser's *rendered*
+    # page. Deliberately checks inner_text (visible text), not raw
+    # page.content() HTML -- some secret words are common enough to
+    # collide with our own element ids as literal substrings (e.g. the
+    # French word "chat" matches id="chat-log"/"chat-input"), which would
+    # be a false positive, not a real information leak.
+    assert secret not in guesser.inner_text("body")
 
     # 6: prompter tries to use the secret word itself -> rejected, not broadcast
     send(prompter, f"it sounds a lot like {secret}")
@@ -142,14 +147,6 @@ def test_full_round_win_path_and_role_swap(two_pages):
     send(prompter, SAFE_HINT_TEXT)
     guesser.wait_for_selector(f"#chat-log >> text={SAFE_HINT_TEXT}")
 
-    # 8: guesser sends a wrong guess -> both see it, remaining count decrements
-    send(guesser, "definitely-wrong-guess")
-    prompter.wait_for_selector("#chat-log >> text=definitely-wrong-guess")
-    guesser.wait_for_function(
-        "document.querySelector('#guesses-remaining-guesser').textContent.includes('9')"
-    )
-
-    # 9: guesser sends the correct answer -> round-result + scoreboard update, both sides
     from game.wordbank import load_wordbank
 
     words = load_wordbank()
@@ -157,15 +154,39 @@ def test_full_round_win_path_and_role_swap(two_pages):
     guesser_native = ALICE["native_lang"] if guesser is page_a else BOB["native_lang"]
     answer = match["translations"][guesser_native]
 
+    # 8: guesser sends a wrong guess -> both see it, remaining count decrements
+    send(guesser, "definitely-wrong-guess")
+    prompter.wait_for_selector("#chat-log >> text=definitely-wrong-guess")
+    guesser.wait_for_function(
+        "document.querySelector('#guesses-remaining-guesser').textContent.includes('9')"
+    )
+    attempts_before_correct = 1
+
+    # Regression check: guessing the target-language word itself (instead of
+    # translating it) gets a clarifying message, not a generic "not quite"
+    # -- this is the exact confusion a real playtester hit (see README).
+    # Skipped for the rare word whose translation is spelled identically in
+    # both languages (e.g. "table" in en/fr) -- there, the target word IS
+    # the correct native-language answer too, so it would win the round
+    # instead of triggering the wrong-language path, which is correct
+    # behavior but would make this specific sub-check flaky.
+    if secret.lower() != answer.lower():
+        send(guesser, secret)
+        guesser.wait_for_selector("#chat-log >> text=Translate it into")
+        guesser.wait_for_function(
+            "document.querySelector('#guesses-remaining-guesser').textContent.includes('8')"
+        )
+        attempts_before_correct = 2
+
+    # 9: guesser sends the correct answer -> round-result + scoreboard update, both sides
     send(guesser, answer)
     guesser.wait_for_selector(".msg.system.win")
     prompter.wait_for_selector(".msg.system.win")
 
     guesser_score_text = guesser.text_content("#scoreboard")
     prompter_score_text = prompter.text_content("#scoreboard")
-    # one wrong guess was already made above, so the correct guess is the
-    # 2nd attempt -> SCORE_TABLE[1] == 9 points, not the max of 10
-    assert "9" in guesser_score_text
+    expected_score = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1][attempts_before_correct]
+    assert str(expected_score) in guesser_score_text
     assert "You" in guesser_score_text
     assert prompter_score_text  # opponent's board also updated
 

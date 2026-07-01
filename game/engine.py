@@ -176,6 +176,14 @@ class Room:
                 "guesses_used": round_.guesses_used,
             }
 
+        # Real playtesting showed guessers naturally repeat the target-
+        # language word itself (what they read in the hints) instead of
+        # translating it into their own native language, which this game
+        # intentionally requires. Flag that specific mix-up so the UI can
+        # explain it, rather than a generic "not quite".
+        target_word = round_.word["translations"][round_.target_lang]
+        wrong_language = is_close_match(text, target_word)
+
         if round_.guesses_used >= MAX_GUESSES:
             round_.status = "lost"
             return {
@@ -184,6 +192,7 @@ class Room:
                 "score": 0,
                 "word": round_.word,
                 "guesses_used": round_.guesses_used,
+                "wrong_language": wrong_language,
             }
 
         return {
@@ -191,4 +200,5 @@ class Room:
             "lost": False,
             "score": 0,
             "remaining": MAX_GUESSES - round_.guesses_used,
+            "wrong_language": wrong_language,
         }

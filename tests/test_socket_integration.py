@@ -133,6 +133,26 @@ def test_guesser_cannot_send_hint(two_clients):
     assert "prompter" in err["message"].lower()
 
 
+def test_guessing_the_target_language_word_flags_wrong_language(two_clients):
+    # Regression for a real playtest report: guesser answered with the
+    # target-language word itself (what the prompter is hinting at) instead
+    # of translating it into their own native language, and only saw a
+    # generic "not quite" with no explanation.
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    bob_round = _last(bob, "round_started")
+    secret = bob_round["secret_word"]
+
+    alice.emit("send_guess", {"text": secret})
+    guess_result = _last(alice, "guess_result")
+    assert guess_result["correct"] is False
+    assert guess_result["wrong_language"] is True
+    assert guess_result["remaining"] == 9
+
+
 def test_wrong_guess_then_correct_guess_awards_score_and_swaps_roles(two_clients):
     alice, bob = two_clients
     alice.emit("create_room", ALICE_PROFILE)

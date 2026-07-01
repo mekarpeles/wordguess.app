@@ -24,6 +24,8 @@
   let currentRole = null; // "prompter" | "guesser"
   let currentRoomCode = null;
   let roundCount = 0;
+  let currentTargetLang = null;
+  let currentGuesserNativeLang = null;
 
   function showStatus(message) {
     statusMessage.textContent = message || "";
@@ -88,6 +90,8 @@
     }
 
     renderScoreboard(data.scores);
+    currentTargetLang = data.target_lang;
+    currentGuesserNativeLang = data.guesser_native_lang || null;
 
     if (data.role === "prompter") {
       roleBanner.textContent = `You are the PROMPTER. Give hints in ${LANG_NAMES[data.target_lang]} without saying the word.`;
@@ -98,12 +102,14 @@
       guessesRemainingEl.textContent = `${data.guesses_remaining} guesses remaining`;
       chatInput.placeholder = `Type a hint in ${LANG_NAMES[data.target_lang]}...`;
     } else {
-      roleBanner.textContent = `You are the GUESSER. Read the hints in ${LANG_NAMES[data.target_lang]} and answer in ${LANG_NAMES[data.guesser_native_lang]}.`;
+      const nativeName = LANG_NAMES[data.guesser_native_lang];
+      const targetName = LANG_NAMES[data.target_lang];
+      roleBanner.textContent = `You are the GUESSER. Read the hints in ${targetName} and answer in your own language, ${nativeName} — not ${targetName}.`;
       roleBanner.className = "role-guesser";
       wordCard.classList.add("hidden");
       guesserStatus.classList.remove("hidden");
       guessesRemainingGuesserEl.textContent = `${data.guesses_remaining} guesses remaining`;
-      chatInput.placeholder = `Type your guess in ${LANG_NAMES[data.guesser_native_lang]}...`;
+      chatInput.placeholder = `Type your guess in ${nativeName} (not ${targetName})...`;
     }
 
     chatInput.disabled = false;
@@ -126,7 +132,15 @@
 
   socket.on("guess_result", (data) => {
     if (!data.correct) {
-      addSystemMessage(`Not quite. ${data.remaining} guesses left.`);
+      if (data.wrong_language && currentRole === "guesser") {
+        const nativeName = LANG_NAMES[currentGuesserNativeLang];
+        const targetName = LANG_NAMES[currentTargetLang];
+        addSystemMessage(
+          `That's the ${targetName} word! Translate it into ${nativeName} instead. ${data.remaining} guesses left.`
+        );
+      } else {
+        addSystemMessage(`Not quite. ${data.remaining} guesses left.`);
+      }
       if (currentRole === "guesser") {
         guessesRemainingGuesserEl.textContent = `${data.remaining} guesses remaining`;
       }

@@ -162,6 +162,42 @@ def test_submit_guess_score_decreases_with_more_attempts():
     assert a.score == SCORE_TABLE[3]
 
 
+def test_submit_guess_flags_wrong_language_when_guesser_repeats_target_word():
+    # Regression: a real playtester guessed the target-language word itself
+    # ("vecino") instead of translating it into their native language
+    # ("neighbor"), got a generic "not quite", and had no idea why. The
+    # engine should still mark it incorrect (native-language-only guessing
+    # is an intentional design choice) but flag *why* so the UI can explain.
+    room = Room(code="ABCD")
+    a, b = make_players()
+    room.add_player(a)
+    room.add_player(b)
+    round_ = room.start_round()
+    target_word = round_.word["translations"][round_.target_lang]
+
+    result = room.submit_guess(a.sid, target_word)
+
+    assert result["correct"] is False
+    assert result["lost"] is False
+    assert result["wrong_language"] is True
+    assert result["remaining"] == 9
+    # it still counts as a used attempt
+    assert room.round.guesses_used == 1
+
+
+def test_submit_guess_wrong_language_flag_is_false_for_an_unrelated_wrong_guess():
+    room = Room(code="ABCD")
+    a, b = make_players()
+    room.add_player(a)
+    room.add_player(b)
+    room.start_round()
+
+    result = room.submit_guess(a.sid, "definitely-unrelated")
+
+    assert result["correct"] is False
+    assert result["wrong_language"] is False
+
+
 def test_submit_guess_loses_after_ten_wrong_guesses():
     room = Room(code="ABCD")
     a, b = make_players()
