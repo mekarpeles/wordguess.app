@@ -1,0 +1,9 @@
+services:
+  web:
+    build: .
+    ports:
+      - "${WEB_PORT:-5050}:5050"
+    environment:
+      - FLASK_SECRET=${FLASK_SECRET:-dev-secret}
+    volumes:
+      - .:/app
