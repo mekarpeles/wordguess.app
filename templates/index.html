@@ -45,7 +45,13 @@
         </select>
 
         <div class="actions">
-          <button id="create-room-btn" class="btn-primary">Create new room</button>
+          <button id="find-match-btn" class="btn-primary">🔎 Find a match</button>
+          <button id="create-room-btn" class="btn-secondary">Create new room</button>
+        </div>
+
+        <div id="open-games-panel" class="hidden">
+          <label>Open games matching your languages</label>
+          <div id="open-games-list"></div>
         </div>
 
         <div class="divider">&mdash; or join a friend's room &mdash;</div>
@@ -63,6 +69,7 @@
     <div id="game" class="hidden">
       <div id="room-header">
         <span>Room <span id="room-code-badge"></span></span>
+        <span id="round-timer"></span>
         <div id="scoreboard"></div>
       </div>
 
@@ -75,6 +82,7 @@
       </div>
       <div id="guesser-status" class="hidden">
         <div id="guesses-remaining-guesser" class="tagline"></div>
+        <button id="flag-difficult-btn" class="btn-secondary">🤔 This clue is too hard</button>
       </div>
 
       <div id="chat-log"></div>

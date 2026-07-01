@@ -111,6 +111,38 @@ button {
   margin-top: 10px;
 }
 
+#open-games-panel {
+  margin: 16px 0;
+}
+
+#open-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.game-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0d1116;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.game-row .game-row-info {
+  color: var(--text-dim);
+}
+
+.no-games-message {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 /* --- Game view --- */
 
 #room-header {
@@ -127,6 +159,16 @@ button {
   border-radius: 6px;
   padding: 4px 10px;
   letter-spacing: 2px;
+}
+
+#round-timer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+#round-timer.low-time {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 #scoreboard {

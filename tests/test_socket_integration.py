@@ -72,10 +72,43 @@ def test_create_and_join_room_starts_round_for_both(two_clients):
 
 
 def test_join_unknown_room_returns_error(two_clients):
-    alice, _bob = two_clients
+    alice, bob = two_clients
     alice.emit("join_room", {**ALICE_PROFILE, "code": "ZZZZ"})
     err = _last(alice, "error")
     assert "not found" in err["message"]
+    # Regression: server-side error replies must target only the requesting
+    # client (via to=request.sid), not broadcast to every connected socket.
+    assert _events(bob, "error") == []
+
+
+def test_list_open_games_returns_strict_mutual_matches(game_app):
+    flask_app, socketio = game_app
+    alice = socketio.test_client(flask_app)
+    alice.emit("create_room", ALICE_PROFILE)  # en native / fr target
+    code = _last(alice, "joined")["code"]
+
+    seeker = socketio.test_client(flask_app)
+    seeker.emit("list_open_games", {"native_lang": "fr", "target_lang": "en"})
+    games = _last(seeker, "open_games")["games"]
+    assert games == [{"code": code, "host_name": "Alice", "level": "beginner"}]
+
+    mismatched = socketio.test_client(flask_app)
+    mismatched.emit("list_open_games", {"native_lang": "es", "target_lang": "zh"})
+    assert _last(mismatched, "open_games")["games"] == []
+
+    alice.disconnect()
+    seeker.disconnect()
+    mismatched.disconnect()
+
+
+def test_list_open_games_excludes_full_rooms(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})  # room now full
+
+    alice.emit("list_open_games", {"native_lang": "fr", "target_lang": "en"})
+    assert _last(alice, "open_games")["games"] == []
 
 
 def test_third_player_rejected(game_app, two_clients):
@@ -89,6 +122,10 @@ def test_third_player_rejected(game_app, two_clients):
     carol.emit("join_room", {"name": "Carol", "native_lang": "en", "target_lang": "fr", "code": code})
     err = _last(carol, "error")
     assert "full" in err["message"].lower()
+    # Regression: the "room full" error must not be broadcast to the
+    # players already in the room.
+    assert _events(alice, "error") == []
+    assert _events(bob, "error") == []
     carol.disconnect()
 
 
@@ -114,12 +151,23 @@ def test_valid_hint_is_broadcast_to_both_players(two_clients):
     code = _last(alice, "joined")["code"]
     bob.emit("join_room", {**BOB_PROFILE, "code": code})
 
-    bob.emit("send_hint", {"text": "un fruit rouge ou vert"})
+    bob.emit("send_hint", {"text": "c'est très commun dans la cuisine"})
     hint_for_alice = _last(alice, "hint")
     hint_for_bob = _last(bob, "hint")
-    assert hint_for_alice["text"] == "un fruit rouge ou vert"
-    assert hint_for_bob["text"] == "un fruit rouge ou vert"
+    assert hint_for_alice["text"] == "c'est très commun dans la cuisine"
+    assert hint_for_bob["text"] == "c'est très commun dans la cuisine"
     assert hint_for_alice["from_name"] == "Bob"
+
+
+def test_hint_broadcast_is_annotated_with_emoji_for_known_words(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    bob.emit("send_hint", {"text": "c'est rouge et rond"})
+    hint_for_alice = _last(alice, "hint")
+    assert "rouge 🔴" in hint_for_alice["text"]
 
 
 def test_guesser_cannot_send_hint(two_clients):
@@ -133,23 +181,73 @@ def test_guesser_cannot_send_hint(two_clients):
     assert "prompter" in err["message"].lower()
 
 
-def test_guessing_the_target_language_word_flags_wrong_language(two_clients):
-    # Regression for a real playtest report: guesser answered with the
-    # target-language word itself (what the prompter is hinting at) instead
-    # of translating it into their own native language, and only saw a
-    # generic "not quite" with no explanation.
+def test_guesser_can_flag_difficult_clue_broadcast_to_both(two_clients):
     alice, bob = two_clients
     alice.emit("create_room", ALICE_PROFILE)
     code = _last(alice, "joined")["code"]
     bob.emit("join_room", {**BOB_PROFILE, "code": code})
 
-    bob_round = _last(bob, "round_started")
-    secret = bob_round["secret_word"]
+    alice.emit("flag_difficult")  # Alice is guesser
+    flagged_for_alice = _last(alice, "difficulty_flagged")
+    flagged_for_bob = _last(bob, "difficulty_flagged")
+    assert flagged_for_alice["from_name"] == "Alice"
+    assert flagged_for_bob["from_name"] == "Alice"
 
-    alice.emit("send_guess", {"text": secret})
-    guess_result = _last(alice, "guess_result")
-    assert guess_result["correct"] is False
-    assert guess_result["wrong_language"] is True
+
+def test_prompter_cannot_flag_difficult_clue(two_clients):
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+
+    bob.emit("flag_difficult")  # Bob is prompter
+    err = _last(bob, "error")
+    assert "guesser" in err["message"].lower()
+
+
+def test_guessing_the_target_language_word_flags_wrong_language(game_app):
+    # Regression for a real playtest report: guesser answered with the
+    # target-language word itself (what the prompter is hinting at) instead
+    # of translating it into their own native language, and only saw a
+    # generic "not quite" with no explanation.
+    #
+    # Several real wordbank entries are spelled identically (or near-
+    # identically) in en/fr (e.g. "table", "justice", "silence") -- if one
+    # of those were drawn, repeating the target word IS the correct
+    # native-language answer too, which would coincidentally win the round
+    # instead of triggering the wrong_language flag. Retry with a fresh
+    # room/word rather than asserting on a random draw.
+    flask_app, socketio = game_app
+    from game.wordbank import load_wordbank
+
+    words = load_wordbank()
+
+    for _ in range(20):
+        alice = socketio.test_client(flask_app)
+        bob = socketio.test_client(flask_app)
+        alice.emit("create_room", ALICE_PROFILE)
+        code = _last(alice, "joined")["code"]
+        bob.emit("join_room", {**BOB_PROFILE, "code": code})
+        bob_round = _last(bob, "round_started")
+        secret = bob_round["secret_word"]
+        match = next(w for w in words if w["translations"]["fr"] == secret)
+        answer = match["translations"]["en"]
+
+        if secret.lower() == answer.lower():
+            alice.disconnect()
+            bob.disconnect()
+            continue
+
+        alice.emit("send_guess", {"text": secret})
+        guess_result = _last(alice, "guess_result")
+        assert guess_result["correct"] is False
+        assert guess_result["wrong_language"] is True
+        assert guess_result["remaining"] == 9
+        alice.disconnect()
+        bob.disconnect()
+        return
+
+    pytest.fail("could not draw a non-cognate word in 20 attempts")
     assert guess_result["remaining"] == 9
 
 
@@ -215,3 +313,30 @@ def test_disconnect_notifies_remaining_player(two_clients):
 
     bob.disconnect()
     _last(alice, "opponent_left")
+
+
+def test_winning_guess_after_opponent_disconnects_does_not_crash(two_clients):
+    # Regression: _finish_round_and_advance used to call room.next_round(),
+    # which requires 2 players -- a guess submitted right after the
+    # opponent disconnects (a real race) would raise RoomNotReadyError
+    # inside the socket handler.
+    alice, bob = two_clients
+    alice.emit("create_room", ALICE_PROFILE)
+    code = _last(alice, "joined")["code"]
+    bob.emit("join_room", {**BOB_PROFILE, "code": code})
+    bob_round = _last(bob, "round_started")
+    secret = bob_round["secret_word"]
+    rounds_started_before = len(_events(alice, "round_started"))
+    bob.disconnect()
+
+    from game.wordbank import load_wordbank
+
+    words = load_wordbank()
+    match = next(w for w in words if w["translations"]["fr"] == secret)
+    answer = match["translations"]["en"]
+
+    alice.emit("send_guess", {"text": answer})
+    result = _last(alice, "round_result")
+    assert result["correct"] is True
+    # no new round should have started -- the opponent is gone
+    assert len(_events(alice, "round_started")) == rounds_started_before
